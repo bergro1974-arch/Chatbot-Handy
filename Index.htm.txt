@@ -1,0 +1,121 @@
+<script>
+    // WICHTIG: Ersetze diese IP durch die IP deines Rechners im WireGuard-Netzwerk!
+    const API_URL = "http://192.168.178.29:1234/v1/chat/completions"; 
+    const md = window.markdownit({ html: false, breaks: true });
+
+    let systemPrompt = { 
+        role: "system", 
+        content: "Du bist ein hilfreicher Assistent." 
+    };
+
+    let chatHistory = [];
+
+    async function loadProfile() {
+        const selectedFile = document.getElementById('profile-select').value;
+        // Fallback-Logik (da fetch auf .md Dateien bei GitHub Pages oft lokal blockiert wird)
+        fallbackProfile(selectedFile);
+        
+        if (chatHistory.length === 0) {
+            chatHistory = [{ ...systemPrompt }];
+        } else {
+            chatHistory[0] = { ...systemPrompt };
+        }
+    }
+
+    function fallbackProfile(file) {
+        if (file === 'rechtsberater.md') {
+            systemPrompt.content = "Du agierst als spezialisierter Rechtsberater für österreichisches Wirtschaftsrecht mit Fokus auf das Facility Management (FM). Achte auf korrekte Rechtsterminologie und fokussiere dich auf Risiken, ÖNORM-Standards und spezifische Vertragsklauseln.";
+        } else if (file === 'programmierer.md') {
+            systemPrompt.content = "Du bist ein erfahrener Senior Software Entwickler. Du antwortest technisch und lieferst sauberen Code.";
+        } else {
+            systemPrompt.content = "Du bist ein hilfreicher Assistent. Antworte präzise auf Deutsch.";
+        }
+    }
+
+    function startNewChat() {
+        if (confirm("Möchtest du den aktuellen Chat löschen?")) {
+            chatHistory = [{ ...systemPrompt }];
+            document.getElementById('chat-window').innerHTML = '';
+            appendMessage('ai', "Gedächtnis gelöscht. Wie kann ich dir helfen?", true);
+        }
+    }
+
+    async function sendMessage() {
+        const input = document.getElementById('user-input');
+        const text = input.value.trim();
+        if (!text) return;
+
+        chatHistory.push({ role: "user", content: text });
+        appendMessage('user', text, false);
+        input.value = '';
+        toggleInput(false);
+
+        const thinkingDiv = appendThinkingIndicator();
+
+        try {
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                // HIER SIND DIE WICHTIGEN IOS-ANPASSUNGEN:
+                mode: 'cors', 
+                headers: { 
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model: "local-model", // LM Studio ignoriert den Namen meistens
+                    messages: chatHistory, 
+                    temperature: 0.7
+                })
+            });
+
+            if (!response.ok) throw new Error(`HTTP-Fehler! Status: ${response.status}`);
+
+            const data = await response.json();
+            const reply = data.choices[0].message.content;
+
+            chatHistory.push({ role: "assistant", content: reply });
+            thinkingDiv.remove();
+            appendMessage('ai', reply, true);
+
+        } catch (err) {
+            thinkingDiv.remove();
+            // Zeigt den exakten Fehler am iPhone an (z.B. TypeError: Load failed = Mixed Content Block)
+            appendMessage('ai', "⚠️ Fehler: " + err.message + ". Prüfe WireGuard und LM Studio CORS!", false);
+            console.error("Detail-Fehler:", err);
+        } finally {
+            toggleInput(true);
+        }
+    }
+
+    function appendMessage(role, text, useMarkdown) {
+        const win = document.getElementById('chat-window');
+        const div = document.createElement('div');
+        div.className = `msg ${role}`;
+        div.innerHTML = useMarkdown ? md.render(text) : text;
+        win.appendChild(div);
+        win.scrollTop = win.scrollHeight;
+    }
+
+    function appendThinkingIndicator() {
+        const win = document.getElementById('chat-window');
+        const div = document.createElement('div');
+        div.className = 'msg ai thinking-msg';
+        div.innerHTML = '<span class="brain-avatar">🧠</span><span>Denke nach...</span>';
+        win.appendChild(div);
+        win.scrollTop = win.scrollHeight;
+        return div;
+    }
+
+    function toggleInput(enable) {
+        document.getElementById('send-btn').disabled = !enable;
+        document.getElementById('user-input').disabled = !enable;
+        if(enable) document.getElementById('user-input').focus();
+    }
+
+    document.getElementById('send-btn').onclick = sendMessage;
+    document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') sendMessage(); };
+
+    window.onload = async () => {
+        await loadProfile();
+        appendMessage('ai', "Bereit für deine Fragen!", true);
+    };
+</script>
