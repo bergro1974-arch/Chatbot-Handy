@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI Local Assistant - Gedächtnis & Context</title>
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-color: #eaeaea;
+            --user-blue: #007acc;
+            --ai-grey: #2c2c2c;
+            --brain-color: #00d2ff;
+            --accent-green: #28a745;
+            --reset-red: #a72828;
+        }
+
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; display: flex; justify-content: center; height: 100vh; overflow: hidden; }
+        
+        .chat-container { 
+            width: 100%; 
+            max-width: 850px; 
+            height: 100vh; 
+            margin: 0; 
+            background: var(--card-bg); 
+            border-radius: 0; 
+            display: flex; 
+            flex-direction: column; 
+            box-shadow: none; 
+            border: none; 
+            position: relative;
+        }
+
+        /* Header mit Neuem Chat Button */
+        .chat-header {
+            padding: 12px 15px;
+            background: #252525;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #333;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .header-title { font-weight: bold; color: var(--brain-color); letter-spacing: 1px; flex-grow: 1; font-size: 16px; }
+
+        .profile-dropdown {
+            padding: 10px;
+            background: #111;
+            color: var(--text-color);
+            border: 1px solid #555;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            outline: none;
+            flex-grow: 1;
+        }
+
+        .new-chat-btn {
+            padding: 10px 15px;
+            background: transparent;
+            color: var(--text-color);
+            border: 1px solid #555;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .new-chat-btn:hover { background: var(--reset-red); border-color: var(--reset-red); }
+
+        #chat-window { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 15px; }
+
+        .msg { padding: 12px 16px; border-radius: 12px; max-width: 85%; line-height: 1.5; font-size: 15px; word-wrap: break-word; }
+        .msg p { margin: 0; }
+        .msg strong { color: #fff; font-weight: 800; }
+        
+        .user { background: var(--user-blue); align-self: flex-end; border-bottom-right-radius: 2px; }
+        .ai { background: var(--ai-grey); align-self: flex-start; border-bottom-left-radius: 2px; border: 1px solid #444; }
+        
+        .thinking-msg { display: flex; align-items: center; gap: 12px; color: var(--brain-color); background: none !important; border: none !important; }
+        .brain-avatar { font-size: 26px; animation: brainPulse 1.6s infinite ease-in-out; }
+        @keyframes brainPulse { 0% { transform: scale(1); opacity: 0.5; } 50% { transform: scale(1.15); opacity: 1; filter: drop-shadow(0 0 8px var(--brain-color)); } 100% { transform: scale(1); opacity: 0.5; } }
+
+        .input-area { display: flex; padding: 12px 15px; background: #252525; gap: 10px; border-top: 1px solid #333; padding-bottom: env(safe-area-inset-bottom, 12px); }
+        input { flex: 1; padding: 14px; border: 1px solid #444; border-radius: 8px; background: #111; color: white; outline: none; font-size: 16px; }
+        
+        #send-btn { padding: 0 20px; background: var(--accent-green); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 15px; }
+        #send-btn:disabled { background: #444; }
+
+        /* Tablet & Desktop Layout */
+        @media (min-width: 768px) {
+            .chat-container { height: 90vh; width: 95%; margin: auto; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); border: 1px solid #333; }
+            .chat-header { padding: 15px 25px; flex-wrap: nowrap; border-radius: 12px 12px 0 0; }
+            .header-title { font-size: 18px; }
+            .profile-dropdown, .new-chat-btn { font-size: 14px; padding: 10px 15px; }
+            #chat-window { padding: 25px; }
+            .msg { font-size: 16px; padding: 14px 18px; max-width: 80%; }
+            .input-area { padding: 20px; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; }
+            input { font-size: 16px; }
+            #send-btn { padding: 0 25px; font-size: 16px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="chat-container">
+    <div class="chat-header">
+        <div class="header-title">LM STUDIO LOCAL</div>
+        <select id="profile-select" class="profile-dropdown" onchange="loadProfile()">
+            <option value="assistant.md">Standard Assistent</option>
+            <option value="rechtsberater.md">Rechtsberater (FM)</option>
+            <option value="programmierer.md">Programmierer</option>
+        </select>
+        <button class="new-chat-btn" onclick="startNewChat()">+ Neuer Chat</button>
+    </div>
+
+    <div id="chat-window"></div>
+
+    <div class="input-area">
+        <input type="text" id="user-input" placeholder="Frag mich was..." autocomplete="off">
+        <button id="send-btn">Senden</button>
+    </div>
+</div>
+
+<script>
+    const API_URL = "http://192.168.178.29:1234/v1/chat/completions";
+    const md = window.markdownit({ html: false, breaks: true });
+
+    // System-Instruktion: Legt fest, wie die KI sich grundsätzlich verhalten soll
+    let systemPrompt = { 
+        role: "system", 
+        content: "Lade Profil..." 
+    };
+
+    let chatHistory = [];
+
+    // Profil aus MD-Datei laden
+    async function loadProfile() {
+        const selectedFile = document.getElementById('profile-select').value;
+        try {
+            const response = await fetch(selectedFile);
+            if (response.ok) {
+                systemPrompt.content = await response.text();
+            } else {
+                console.error("Profil nicht gefunden, lade Fallback...");
+                fallbackProfile(selectedFile);
+            }
+        } catch (err) {
+            console.error("Fehler beim Laden (Lokaler Server nötig für fetch), lade Fallback...", err);
+            fallbackProfile(selectedFile);
+        }
+
+        // Falls es ein neuer Chat ist oder noch leer, System-Prompt initial setzen
+        if (chatHistory.length === 0) {
+            chatHistory = [{ ...systemPrompt }];
+        } else {
+            // System-Prompt für aktuellen Chat aktualisieren
+            chatHistory[0] = { ...systemPrompt };
+        }
+    }
+
+    function fallbackProfile(file) {
+        if (file === 'rechtsberater.md') {
+            systemPrompt.content = "Du agierst als spezialisierter Rechtsberater für österreichisches Wirtschaftsrecht mit Fokus auf das Facility Management (FM). Achte auf korrekte Rechtsterminologie und fokussiere dich auf Risiken, ÖNORM-Standards und spezifische Vertragsklauseln wie Haftung, LV und VPI-Klauseln.";
+        } else if (file === 'programmierer.md') {
+            systemPrompt.content = "Du bist ein erfahrener Senior Software Entwickler. Du antwortest immer sehr technisch, direkt und lieferst sauberen, gut dokumentierten Code. Du analysierst Probleme tiefgreifend und erklärst die Konzepte auf hohem Niveau.";
+        } else {
+            systemPrompt.content = "Du bist ein hilfreicher Assistent. Antworte präzise auf Deutsch. Nutze Markdown wie **fett** für wichtige Begriffe.";
+        }
+    }
+
+    // Funktion für den "Neuen Chat" Button
+    function startNewChat() {
+        if (confirm("Möchtest du den aktuellen Chat löschen und einen neuen beginnen?")) {
+            chatHistory = [{ ...systemPrompt }];
+            document.getElementById('chat-window').innerHTML = '';
+            appendMessage('ai', "Hallo! Ich habe alles Vorherige vergessen. Wie kann ich dir jetzt helfen?", true);
+        }
+    }
+
+    async function sendMessage() {
+        const input = document.getElementById('user-input');
+        const text = input.value.trim();
+        if (!text) return;
+
+        chatHistory.push({ role: "user", content: text });
+        appendMessage('user', text, false);
+        input.value = '';
+        toggleInput(false);
+
+        const thinkingDiv = appendThinkingIndicator();
+
+        try {
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: "llm", 
+                    messages: chatHistory, 
+                    temperature: 0.7
+                })
+            });
+
+            const data = await response.json();
+            const reply = data.choices[0].message.content;
+
+            chatHistory.push({ role: "assistant", content: reply });
+
+            thinkingDiv.remove();
+            appendMessage('ai', reply, true);
+
+        } catch (err) {
+            thinkingDiv.remove();
+            appendMessage('ai', "Fehler: Verbindung zum lokalen Server fehlgeschlagen.", false);
+        } finally {
+            toggleInput(true);
+        }
+    }
+
+    function appendMessage(role, text, useMarkdown) {
+        const win = document.getElementById('chat-window');
+        const div = document.createElement('div');
+        div.className = `msg ${role}`;
+        div.innerHTML = useMarkdown ? md.render(text) : text;
+        win.appendChild(div);
+        win.scrollTop = win.scrollHeight;
+    }
+
+    function appendThinkingIndicator() {
+        const win = document.getElementById('chat-window');
+        const div = document.createElement('div');
+        div.className = 'msg ai thinking-msg';
+        div.innerHTML = '<span class="brain-avatar">🧠</span><span>Denke nach...</span>';
+        win.appendChild(div);
+        win.scrollTop = win.scrollHeight;
+        return div;
+    }
+
+    function toggleInput(enable) {
+        document.getElementById('send-btn').disabled = !enable;
+        document.getElementById('user-input').disabled = !enable;
+        if(enable) document.getElementById('user-input').focus();
+    }
+
+    document.getElementById('send-btn').onclick = sendMessage;
+    document.getElementById('user-input').onkeypress = (e) => { if(e.key === 'Enter') sendMessage(); };
+
+    // Initialer Gruß
+    window.onload = async () => {
+        await loadProfile();
+        appendMessage('ai', "Bereit für deine Fragen!", true);
+    };
+</script>
+
+</body>
+</html>
